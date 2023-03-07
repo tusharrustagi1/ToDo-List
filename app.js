@@ -1,22 +1,64 @@
 const express=require("express");
 const bodyParser=require("body-parser");
-const date=require(__dirname+"/date.js");
+const mongoose=require("mongoose");
+const _=require("lodash");
 const app=express();
 app.set("view engine","ejs");
 app.use(bodyParser.urlencoded({extended:true}));
 app.use(express.static("public"));
-const items=["Buy Food","Cook Food","Eat Food"];
-const workItems=[];
+mongoose.connect("mongodb://localhost:27017/todolistDB",{useNewUrlParser:true});
+const itemsSchema={
+    name:String
+};
+const Item=mongoose.model("Item",itemsSchema);
+const listSchema={
+    name:String,
+    items:[itemsSchema]
+};
+const List=mongoose.model("List",listSchema);
+const work=new Item({name:"Work"});
+const find=new Item({name:"Find"});
+const take=new Item({name:"Take"});
 app.get("/",function(req,res)
 {
-    const day=date.getDate();
-    res.render("list",{listTitle:day,newListItems:items});
+    Item.find().then(function(result)
+    {
+        if(result.length===0)
+        {
+            Item.insertMany([work,find,take]).then(function(res)
+            {
+                console.log(res);
+            });
+            res.redirect("/");
+        }
+        else
+        {
+            res.render("list",{listTitle:"Today",newListItems:result});
+        }
+    });
     // res.send();
 });
-app.get("/work",function(req,res)
+app.get("/:customListName",function(req,res)
 {
-    res.render("list",{listTitle:"Work List",newListItems:workItems});
-})
+    const customListName=_.capitalize(req.params.customListName);
+    const defaultItems=[work,find,take];
+    List.findOne({name:customListName}).then(function(result)
+    {
+        if(!result)
+        {
+            const list=new List({
+                name:customListName,
+                items:defaultItems
+            });
+            list.save();
+            res.redirect("/"+customListName);
+        }
+        else
+        {
+            res.render("list",{listTitle:customListName,newListItems:result.items});
+        }
+    });
+});
 app.get("/about",function(req,res)
 {
     res.render("about");
@@ -29,17 +71,49 @@ app.post("/work",function(req,res)
 })
 app.post("/",function(req,res)
 {
-    const item=req.body.newItem;
-    if(req.body.list==='Work')
+    const itemName=req.body.newItem;
+    const listName=req.body.list;
+    const item=new Item({name:itemName});
+    if(listName==="Today")
     {
-        workItems.push(item);
-        res.redirect("/work");
+        item.save();
+        res.redirect("/");
     }
     else
     {
-        items.push(item);
-        res.redirect("/");
+        List.findOne({name:listName}).then(function(result)
+        {
+            result.items.push(item);
+            result.save();
+            res.redirect("/"+listName);
+        });
     }
+});
+app.post("/delete",function(req,res)
+{
+    const checkedItemId=req.body.checkbox;
+    const listName=req.body.listName;
+    if(listName==="Today")
+    {
+        Item.findByIdAndRemove(checkedItemId).then(function(r)
+        {
+            console.log(r);
+            res.redirect("/");
+        });
+    }
+    else
+    {
+        List.findOneAndUpdate({name:listName},{$pull:{items:{_id:checkedItemId}}}).then(function(result)
+        {
+            console.log(result);
+            res.redirect("/"+listName);
+        });
+    }
+});
+app.post("/new",function(req,res)
+{
+    const newList=req.body.newList;
+    res.redirect("/"+newList);
 });
 app.listen(3000,function()
 {
